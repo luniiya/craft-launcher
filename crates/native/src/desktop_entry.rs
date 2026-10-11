@@ -86,6 +86,23 @@ pub fn render(app: &CraftApp, appimage: &Path, icon: bool) -> Option<String> {
     Some(text)
 }
 
+/// The entry for `app` installed as a Flatpak. It runs `flatpak run`, so the desktop can show the
+/// app before it has noticed the entry Flatpak exports itself.
+pub fn render_flatpak(app: &CraftApp) -> String {
+    let (categories, wm_class) = meta(app);
+    let mut text = String::from("[Desktop Entry]\nType=Application\n");
+    text.push_str(&format!("Name={}\n", value(app.name)));
+    text.push_str(&format!("Comment={}\n", value(app.tagline)));
+    text.push_str(&format!("Exec=flatpak run {} %F\n", app.bundle_id()));
+    text.push_str(&format!("Icon={}\n", app.bundle_id()));
+    text.push_str("Terminal=false\n");
+    text.push_str(&format!("Categories={categories}\n"));
+    text.push_str(&format!("StartupWMClass={}\n", wm_class.map_or_else(|| app.bundle_id(), str::to_string)));
+    text.push_str(MARKER);
+    text.push('\n');
+    text
+}
+
 /// Whether the launcher wrote this entry.
 pub fn is_ours(text: &str) -> bool {
     text.lines().any(|l| l.trim() == MARKER)

@@ -64,7 +64,14 @@ pub fn install(
         #[cfg(windows)]
         PackageKind::Msi => windows::run_msi(&file, job.stop, &mut *job.phase).map(|_| None),
         #[cfg(target_os = "linux")]
-        PackageKind::Deb | PackageKind::Rpm | PackageKind::Flatpak => linux::install_package(kind, &file, job.stop, &mut *job.phase).map(|_| None),
+        PackageKind::Deb | PackageKind::Rpm | PackageKind::Flatpak => {
+            let first_flatpak = kind == PackageKind::Flatpak && !linux::flatpak_exports_exist();
+            let installed = linux::install_package(kind, &file, job.stop, &mut *job.phase);
+            if installed.is_ok() && first_flatpak {
+                linux::show_flatpak_now(app);
+            }
+            installed.map(|_| None)
+        }
         #[cfg(target_os = "linux")]
         PackageKind::AppImage => linux::install_appimage(app, &file, &asset.name, existing).map(|(path, replaced)| {
             let files = linux::integrate(app, &path, &replaced, previous);
@@ -522,6 +529,7 @@ pub(crate) mod linux {
                 let id = app.bundle_id();
                 let user = process::flatpak_command().args(["uninstall", "--user", "-y", "--noninteractive", &id]).status();
                 if user.is_ok_and(|s| s.success()) {
+                    hide_flatpak_now(app);
                     return Ok(());
                 }
                 if process::in_sandbox() {
@@ -534,6 +542,46 @@ pub(crate) mod linux {
                 remove(&["flatpak", "uninstall", "--system", "-y", "--noninteractive"], &id)
             }
             other => Err(format!("{} isn't a system package", other.label())),
+        }
+    }
+
+    /// Whether the user's Flatpak exports folder exists. Some desktop menus watch their folders
+    /// from the start, so a folder made later (by the first Flatpak install) goes unseen until
+    /// they restart.
+    pub fn flatpak_exports_exist() -> bool {
+        host_data_dir().is_some_and(|d| d.join("flatpak/exports/share/applications").is_dir())
+    }
+
+    /// After the first Flatpak install: puts the app's entry where menus already look, so it
+    /// shows up without a restart. Flatpak's own entry has the same id and takes over once the
+    /// menu sees it. Best effort.
+    pub fn show_flatpak_now(app: &CraftApp) {
+        if let Some(data) = host_data_dir() {
+            show_flatpak_now_in(&data, app);
+        }
+    }
+
+    pub(crate) fn show_flatpak_now_in(data: &Path, app: &CraftApp) {
+        let desktop = desktop_path(data, app);
+        if desktop.exists() {
+            return;
+        }
+        if let Err(e) = crate::paths::write_atomic(&desktop, crate::desktop_entry::render_flatpak(app).as_bytes()) {
+            log::warn!("{}: couldn't add the menu entry: {e}", app.name);
+        }
+    }
+
+    /// Removes the entry [`show_flatpak_now`] wrote; an entry the launcher didn't write stays.
+    pub fn hide_flatpak_now(app: &CraftApp) {
+        if let Some(data) = host_data_dir() {
+            hide_flatpak_now_in(&data, app);
+        }
+    }
+
+    pub(crate) fn hide_flatpak_now_in(data: &Path, app: &CraftApp) {
+        let desktop = desktop_path(data, app);
+        if std::fs::read_to_string(&desktop).is_ok_and(|t| crate::desktop_entry::is_ours(&t)) {
+            let _ = std::fs::remove_file(&desktop);
         }
     }
 
@@ -1364,6 +1412,29 @@ mod tests {
         std::fs::remove_file(&desktop).unwrap();
         assert!(!linux::repair_menu_entries_in(&data, &mut m));
         assert!(!desktop.exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_first_flatpak_shows_in_the_menu_at_once() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("share");
+        let film = CraftApp::by_id("filmcraft").unwrap();
+        let desktop = data.join("applications/ai.storyteller.filmcraft.desktop");
+
+        linux::show_flatpak_now_in(&data, film);
+        let text = std::fs::read_to_string(&desktop).unwrap();
+        assert!(crate::desktop_entry::is_ours(&text) && text.contains("Exec=flatpak run ai.storyteller.filmcraft %F"));
+        // Removing the app takes it away again.
+        linux::hide_flatpak_now_in(&data, film);
+        assert!(!desktop.exists());
+
+        // An entry the user or the app put there is never replaced or removed.
+        std::fs::create_dir_all(desktop.parent().unwrap()).unwrap();
+        std::fs::write(&desktop, "[Desktop Entry]\nName=Mine\n").unwrap();
+        linux::show_flatpak_now_in(&data, film);
+        linux::hide_flatpak_now_in(&data, film);
+        assert_eq!(std::fs::read_to_string(&desktop).unwrap(), "[Desktop Entry]\nName=Mine\n");
     }
 
     #[cfg(target_os = "linux")]
