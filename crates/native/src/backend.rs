@@ -179,6 +179,15 @@ impl NativeBackend {
             // Leftovers from interrupted installs or older versions of the launcher. A paused
             // download stays a month; a finished one kept after a failed install, a week.
             http::clean_downloads(&paths.downloads(), Duration::from_secs(30 * 86_400), Duration::from_secs(7 * 86_400));
+            #[cfg(target_os = "linux")]
+            {
+                let mut m = shared.manifest.lock().unwrap_or_else(PoisonError::into_inner);
+                if install::linux::repair_menu_entries(&mut m)
+                    && let Err(e) = m.save(&paths.manifest())
+                {
+                    log::warn!("couldn't save the install record: {e}");
+                }
+            }
             let snapshot = crate::detect::Snapshot::take();
             let manifest = shared.manifest.lock().unwrap_or_else(PoisonError::into_inner).clone();
             for app in &SUITE {
