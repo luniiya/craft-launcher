@@ -54,6 +54,11 @@ pub trait Host {
     }
     /// Quit the launcher for real (not just hide to the tray).
     fn quit(&mut self) {}
+    /// The desktop's light or dark preference where egui isn't told it (Linux), for the
+    /// "System" appearance.
+    fn system_theme(&self) -> Option<egui::Theme> {
+        None
+    }
 }
 
 pub(crate) struct Toast {
@@ -92,7 +97,7 @@ pub struct LauncherUi {
     pub(crate) toasts: Vec<Toast>,
     pub(crate) dialog: Option<Dialog>,
     started: bool,
-    applied_theme: Option<theme::ThemeChoice>,
+    applied_theme: Option<(theme::ThemeChoice, Option<egui::Theme>)>,
     /// Fonts registered with `set_fonts` only exist from the next frame on; drawing with the named
     /// weights before then would abort.
     fonts_ready: bool,
@@ -440,9 +445,10 @@ impl LauncherUi {
             ctx.request_repaint();
             return;
         }
-        if self.applied_theme != Some(self.settings.theme) {
-            theme::apply(&ctx, self.settings.theme);
-            self.applied_theme = Some(self.settings.theme);
+        let system = if self.settings.theme == theme::ThemeChoice::System { host.system_theme() } else { None };
+        if self.applied_theme != Some((self.settings.theme, system)) {
+            theme::apply(&ctx, self.settings.theme, system);
+            self.applied_theme = Some((self.settings.theme, system));
         }
         let tokens = Tokens::get(&ctx);
         if self.entries.iter().any(|e| e.job.is_some()) || self.checking {

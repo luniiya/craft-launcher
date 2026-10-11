@@ -5,6 +5,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod appearance;
 mod settings_file;
 #[cfg(target_os = "macos")]
 mod spaces;
@@ -285,6 +286,7 @@ fn no_window() -> egui::RawInput {
 struct DesktopHost {
     tray: bool,
     quit: bool,
+    appearance: Option<appearance::SystemTheme>,
 }
 
 impl Host for DesktopHost {
@@ -310,6 +312,10 @@ impl Host for DesktopHost {
 
     fn has_tray(&self) -> bool {
         self.tray
+    }
+
+    fn system_theme(&self) -> Option<egui::Theme> {
+        self.appearance.as_ref().and_then(appearance::SystemTheme::get)
     }
 
     fn has_desktops(&self) -> bool {
@@ -361,7 +367,7 @@ impl Launcher {
         Self {
             ui: LauncherUi::new(&windowless, backend, Settings::default()),
             tray: None,
-            host: DesktopHost { tray: false, quit: false },
+            host: DesktopHost { tray: false, quit: false, appearance: None },
             starts,
             windowless,
             run_again,
@@ -380,6 +386,8 @@ impl Launcher {
             self.ui.settings = settings;
         }
         self.waker = Some(waker.clone());
+        let theme_changed = waker.clone();
+        self.host.appearance = appearance::SystemTheme::start(move || theme_changed.wake());
         let (wake, on_quit) = (waker.clone(), waker.clone());
         match tray::Tray::new(move || wake.wake(), move || on_quit.quit_from_tray()) {
             Ok(t) => self.tray = Some(t),

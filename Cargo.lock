@@ -294,6 +294,7 @@ dependencies = [
  "serde",
  "tray-icon",
  "winresource",
+ "zbus",
 ]
 
 [[package]]

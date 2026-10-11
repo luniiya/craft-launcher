@@ -588,6 +588,65 @@ fn looks_again_at_installed_apps_every_few_minutes_not_every_frame() {
 }
 
 #[test]
+fn system_appearance_follows_the_desktop_where_egui_isnt_told() {
+    use artcraft_launcher_ui_egui::theme::ThemeChoice;
+    use egui::Theme;
+
+    struct DesktopTheme(Rc<Cell<Option<Theme>>>);
+    impl Host for DesktopTheme {
+        fn system_theme(&self) -> Option<Theme> {
+            self.0.get()
+        }
+    }
+    artcraft_launcher_ui_egui::i18n::set_test_lang(artcraft_launcher_ui_egui::i18n::Lang::EN);
+    let desktop = Rc::new(Cell::new(Some(Theme::Light)));
+    let mut host = DesktopTheme(desktop.clone());
+    let sent = Rc::new(RefCell::new(Vec::new()));
+    let mut backend = Some(Fake { events: events(), sent, manage: true, clock: Rc::new(Cell::new(NOW)) });
+    let mut h = Harness::builder().with_size(egui::vec2(1180.0, 900.0)).build_ui_state(
+        move |ui, state: &mut Option<LauncherUi>| {
+            if state.is_none()
+                && let Some(b) = backend.take()
+            {
+                let settings = Settings { notify: false, theme: ThemeChoice::System, ..Settings::default() };
+                *state = Some(LauncherUi::new(ui.ctx(), Box::new(b), settings));
+            }
+            if let Some(l) = state.as_mut() {
+                l.logic(&ui.ctx().clone(), &mut host);
+                l.ui(ui, &mut host);
+            }
+        },
+        None,
+    );
+    // As on Linux: the window reports nothing, so egui alone would fall back to dark.
+    h.input_mut().system_theme = None;
+    h.run_steps(4);
+    assert_eq!(h.ctx.theme(), Theme::Light, "the desktop's light setting wins over egui's dark fallback");
+
+    // The desktop switches while the launcher is open.
+    desktop.set(Some(Theme::Dark));
+    h.run_steps(2);
+    assert_eq!(h.ctx.theme(), Theme::Dark);
+    desktop.set(Some(Theme::Light));
+    h.run_steps(2);
+    assert_eq!(h.ctx.theme(), Theme::Light);
+
+    // No desktop answer: whatever the window reports, as before.
+    desktop.set(None);
+    h.input_mut().system_theme = Some(Theme::Dark);
+    h.run_steps(2);
+    assert_eq!(h.ctx.theme(), Theme::Dark);
+
+    // A fixed choice ignores the desktop.
+    desktop.set(Some(Theme::Dark));
+    if let Some(l) = h.state_mut().as_mut() {
+        l.settings.theme = ThemeChoice::Light;
+    }
+    h.run_steps(2);
+    assert_eq!(h.ctx.theme(), Theme::Light);
+}
+
+#[test]
 fn the_launcher_updates_itself_and_quits_to_restart() {
     struct QuitHost(Rc<Cell<bool>>);
     impl Host for QuitHost {

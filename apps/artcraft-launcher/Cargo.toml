@@ -45,6 +45,9 @@ objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))'.dependencies]
 tray-icon = { version = "0.25", default-features = false, features = ["ksni"] }
+# The desktop's light or dark setting from the settings portal (appearance.rs). Already in
+# Cargo.lock through ksni; pinned exactly to that version.
+zbus = { version = "=5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
 
 [build-dependencies]
 # Icon + VERSIONINFO for artcraft-launcher.exe; build.rs only uses it when targeting Windows.

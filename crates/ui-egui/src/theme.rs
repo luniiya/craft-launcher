@@ -179,12 +179,13 @@ fn visuals(t: &Tokens) -> Visuals {
     v
 }
 
-/// Applies both appearances (egui switches between them with the theme preference).
-pub fn apply(ctx: &egui::Context, choice: ThemeChoice) {
+/// Applies both appearances (egui switches between them with the theme preference). `system` is
+/// the desktop's preference where egui can't see it, followed when the choice is "System".
+pub fn apply(ctx: &egui::Context, choice: ThemeChoice, system: Option<egui::Theme>) {
     ctx.set_visuals_of(egui::Theme::Dark, visuals(&Tokens::DARK));
     ctx.set_visuals_of(egui::Theme::Light, visuals(&Tokens::LIGHT));
     ctx.set_theme(match choice {
-        ThemeChoice::System => egui::ThemePreference::System,
+        ThemeChoice::System => system.map_or(egui::ThemePreference::System, egui::ThemePreference::from),
         ThemeChoice::Dark => egui::ThemePreference::Dark,
         ThemeChoice::Light => egui::ThemePreference::Light,
     });
